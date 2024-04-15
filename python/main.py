@@ -1,45 +1,42 @@
 import serial
-import uinput
+from pynput.keyboard import Key, Controller
+import time
 
 ser = serial.Serial('/dev/ttyACM0', 115200)
-
-# Create new mouse device
-device = uinput.Device([
-    uinput.BTN_LEFT,
-    uinput.BTN_RIGHT,
-    uinput.REL_X,
-    uinput.REL_Y,
-])
-
+keyboard = Controller()
 
 def parse_data(data):
-    axis = data[0]  # 0 for X, 1 for Y
+    axis = data[0]
     value = int.from_bytes(data[1:3], byteorder='little', signed=True)
-    print(f"Received data: {data}")
-    print(f"axis: {axis}, value: {value}")
     return axis, value
 
+def press_key(axis, value):
+    if value == 0 and axis != 2:
+        return  # Não faz nada se o valor for 0 e não for o terceiro eixo
 
-def move_mouse(axis, value):
-    if axis == 0:    # X-axis
-        device.emit(uinput.REL_X, value)
+    if axis == 0:  # X-axis
+        key = 'd' if value < 0 else 'a'
     elif axis == 1:  # Y-axis
-        device.emit(uinput.REL_Y, value)
+        key = 'w' if value > 0 else 's'
+    elif axis == 2:  # Third axis for additional keys
+        if value == 0:
+            key = 'e'  # 'E' key action
+        elif value == 1:
+            key = 'q'  # 'Q' key action
 
+    # Press and release key
+    keyboard.press(key)
+    time.sleep(0.1)  # Hold key for 100 ms
+    keyboard.release(key)
 
 try:
-    # sync package
+    print('Waiting for sync package...')
     while True:
-        print('Waiting for sync package...')
-        while True:
-            data = ser.read(1)
-            if data == b'\xff':
-                break
-
-        # Read 4 bytes from UART
-        data = ser.read(3)
-        axis, value = parse_data(data)
-        move_mouse(axis, value)
+        data = ser.read(1)
+        if data == b'\xff':
+            data = ser.read(3)
+            axis, value = parse_data(data)
+            press_key(axis, value)
 
 except KeyboardInterrupt:
     print("Program terminated by user")
