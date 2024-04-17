@@ -5,11 +5,19 @@
 #include <task.h>
 #include <semphr.h>
 #include <queue.h>
+#include "mpu6050.h"
+#include "hardware/adc.h"
+#include "hardware/gpio.h"
+#include "hardware/uart.h"
+#include "hardware/i2c.h"
 
 #include <string.h>
+#include <Fusion.h>
+
 
 #include "pico/stdlib.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "hc06.h"
 
@@ -17,7 +25,7 @@
 
 volatile int ADC_X = 26;
 volatile int ADC_Y = 27;
-
+volatile int I2C_PORT = 0;
 
 
 typedef struct adc {
@@ -32,6 +40,8 @@ typedef struct movement {
 
 QueueHandle_t xQueueAdc;
 movement_t *movement;
+
+
 
 void x_adc_task(void *p) {
     adc_t data;
@@ -108,7 +118,6 @@ void hc06_task(void *p) {
         }
         else{
             adc_t data;
-            movement = malloc(sizeof(movement_t));
             xQueueAdc = xQueueCreate(10, sizeof(adc_t));
 
             xQueueReceive(xQueueAdc, &data, portMAX_DELAY);
@@ -118,18 +127,69 @@ void hc06_task(void *p) {
             // SE X FOR 1, MANDA PRA DIREITA, SE FOR -1, MANDA PRA ESQUERDA
             // SE Y FOR 1, MANDA PRA FRENTE, SE FOR -1, MANDA PRA TRAS
 
-            free(movement);
         }
 
     }
 }
 
-void analog_task(void *p) {
-    while (true) {
-        printf("Analog value: %d\n", adc_read());
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+static void mpu6050_read_raw(int16_t *accel, int16_t *gyro) {
+
+    uint8_t buffer[14];
+    uint8_t val = 0x38;
+
+
+    i2c_write_blocking(i2c_default, MPU6050_I2C_DEFAULT, &val, 1, true);
+    i2c_read_blocking(i2c_default, MPU6050_I2C_DEFAULT, buffer, 14, false);
+
+    accel[0] = (buffer[0] << 8) | buffer[1];
+    accel[1] = (buffer[2] << 8) | buffer[3];
+    accel[2] = (buffer[4] << 8) | buffer[5];
+
+    gyro[0] = (buffer[8] << 8) | buffer[9];
+    gyro[1] = (buffer[10] << 8) | buffer[11];
+    gyro[2] = (buffer[12] << 8) | buffer[13];
 }
+
+
+void mpu6050_task(void *p) {
+    i2c_init(i2c_default, 400 * 1000);
+    gpio_set_function(I2C_SDA_GPIO, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL_GPIO, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA_GPIO);
+    gpio_pull_up(I2C_SCL_GPIO);
+
+    // Inicializa o vibrador
+    gpio_init(VIBRATOR_PIN);
+    gpio_set_dir(VIBRATOR_PIN, GPIO_OUT);
+
+    mpu6050_reset();
+    FusionAhrs ahrs;
+    FusionAhrsInitialise(&ahrs);
+
+    int16_t acceleration[3], gyro[3];
+
+    while(1) {
+        mpu6050_read_raw(acceleration, gyro);
+
+        FusionVector gyroscope = {
+            .axis.x = gyro[0] / 131.0f, // Conversão para graus/s
+            .axis.y = gyro[1] / 131.0f,
+            .axis.z = gyro[2] / 131.0f,
+        };
+
+        FusionVector accelerometer = {
+            .axis.x = acceleration[0] / 16384.0f, // Conversão para g
+            .axis.y = acceleration[1] / 16384.0f,
+            .axis.z = acceleration[2] / 16384.0f,
+        };
+
+        FusionAhrsUpdateNoMagnetometer(&ahrs, gyroscope, accelerometer, SAMPLE_PERIOD);
+
+        FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
+
+        // printf("Accel x: %0.2f g, y: %0.2f g, z: %0.2f g\n", accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z);
+        // printf("Gyro x: %0.2f deg/s, y: %0.2f deg/s, z: %0.2f deg/s\n", gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z);
+    }
 
 int main() {
     stdio_init_all();

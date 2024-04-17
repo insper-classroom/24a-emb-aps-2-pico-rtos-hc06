@@ -1,5 +1,7 @@
 #include "hc06.h"
 
+
+
 bool hc06_check_connection() {
     char str[32];
     int i = 0;
