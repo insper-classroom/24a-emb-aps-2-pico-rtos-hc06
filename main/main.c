@@ -11,6 +11,7 @@
 #include "hardware/uart.h"
 #include "hardware/i2c.h"
 
+
 #include <string.h>
 #include <Fusion.h>
 
@@ -22,10 +23,13 @@
 #include "hc06.h"
 
 #define deadzone 120
+#define SAMPLE_PERIOD 0.01f
 
-volatile int ADC_X = 26;
-volatile int ADC_Y = 27;
+volatile int ADC_X = 16;
+volatile int ADC_Y = 17;
 volatile int I2C_PORT = 0;
+volatile int I2C_SDA_GPIO = 20;
+volatile int I2C_SCL_GPIO = 21;
 
 
 typedef struct adc {
@@ -57,14 +61,15 @@ void x_adc_task(void *p) {
 
         if (abs(result) < deadzone) {
             result = 0;
-            movement->x = 0;
+            //movement->x = 0;
         }else{
-            movement->x = result/abs(result);
+            //movement->x = result/abs(result);
             }
 
         data.val = result;
         data.axis = 1;
         xQueueSend(xQueueAdc, &data, portMAX_DELAY);
+        printf("X: %d\n", data.val);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -83,13 +88,14 @@ void y_adc_task(void *p) {
 
         if (abs(result) < deadzone) {
             result = 0;
-            movement->y = 0;
+            //movement->y = 0;
         }else{
-            movement->y = result/abs(result);
+            //movement->y = result/abs(result);
         }
         data.val = result;
         data.axis = 0;
         xQueueSend(xQueueAdc, &data, portMAX_DELAY);
+        printf("Y: %d\n", data.val);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -131,7 +137,12 @@ void hc06_task(void *p) {
 
     }
 }
-
+static void mpu6050_reset() {
+    // Two byte reset. First byte register, second byte data
+    // There are a load more options to set up the device in different ways that could be added here
+    uint8_t buf[] = {0x6B, 0x80};
+    i2c_write_blocking(i2c_default, MPU6050_I2C_DEFAULT, buf, 2, false);
+}
 static void mpu6050_read_raw(int16_t *accel, int16_t *gyro) {
 
     uint8_t buffer[14];
@@ -158,10 +169,6 @@ void mpu6050_task(void *p) {
     gpio_pull_up(I2C_SDA_GPIO);
     gpio_pull_up(I2C_SCL_GPIO);
 
-    // Inicializa o vibrador
-    gpio_init(VIBRATOR_PIN);
-    gpio_set_dir(VIBRATOR_PIN, GPIO_OUT);
-
     mpu6050_reset();
     FusionAhrs ahrs;
     FusionAhrsInitialise(&ahrs);
@@ -187,19 +194,43 @@ void mpu6050_task(void *p) {
 
         FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
-        // printf("Accel x: %0.2f g, y: %0.2f g, z: %0.2f g\n", accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z);
-        // printf("Gyro x: %0.2f deg/s, y: %0.2f deg/s, z: %0.2f deg/s\n", gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z);
+        printf("Accel x: %0.2f g, y: %0.2f g, z: %0.2f g\n", accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z);
+        printf("Gyro x: %0.2f deg/s, y: %0.2f deg/s, z: %0.2f deg/s\n", gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z);
+    
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
+}
+
+void task_tes( void *p) {
+    int pino_meio = 14;
+    int pino_fim = 15;
+
+    gpio_init(pino_meio);
+    gpio_init(pino_fim);
+    gpio_set_dir(pino_meio, GPIO_IN);
+    gpio_set_dir(pino_fim, GPIO_IN);
+    while(1){
+        if (gpio_get(pino_meio)){
+            printf("Meio\n");
+        }
+        if (gpio_get(pino_fim)){
+            printf("Fim\n");
+        }
+    }
+}
 int main() {
     stdio_init_all();
 
     printf("Start bluetooth task\n");
-
+/*
     xTaskCreate(hc06_task, "UART_Task 1", 4096, NULL, 1, NULL);
+    xTaskCreate(task_tes, "Task Teste", 4096, NULL, 1, NULL);
+    xTaskCreate(mpu6050_task, "MPU6050_Task", 4096, NULL, 1, NULL);
+*/
+    
     xTaskCreate(x_adc_task, "ADC_Task 1", 4096, NULL, 1, NULL);
     xTaskCreate(y_adc_task, "ADC_Task 2", 4096, NULL, 1, NULL);
-    
 
 
     vTaskStartScheduler();
