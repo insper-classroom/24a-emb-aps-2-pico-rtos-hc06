@@ -50,7 +50,7 @@ bool hc06_set_pin(char pin[]) {
 }
 
 bool hc06_set_at_mode(int on){
-    gpio_put(HC06_PIN, on);
+    gpio_put(HC06_EN_PIN, on);
 }
 
 bool hc06_init(char name[], char pin[]) {
